@@ -18,7 +18,7 @@ namespace DepositTermCalc
             public DateTime? StartDate { get; set; }
             public bool IsHoldInCash { get; set; }
             public decimal Amount { get; set; }
-            public string Comment { get; set; } = "";
+            public string Name { get; set; } = "";
             public bool WasEndedBecauseOfMaxDurationLimit { get; set; }
 
             public Deposit(decimal amount)
@@ -93,7 +93,7 @@ namespace DepositTermCalc
 
 
             var oldDeposits = lines.Skip(8).Select(s => s.Split(new[] { ' ' }, 3))
-                .Select(ss => new Deposit(decimal.Parse(ss[1])) { EndDate = CorrectIfWeekend(DateTime.Parse(ss[0], dtCulture)), Comment = ss.Length >= 3 ? ss[2] : ""}).OrderBy(x => x.EndDate)
+                .Select(ss => new Deposit(decimal.Parse(ss[1])) { EndDate = CorrectIfWeekend(DateTime.Parse(ss[0], dtCulture)), Name = ss.Length >= 3 ? ss[2] : ""}).OrderBy(x => x.EndDate)
                 .ToList();
 
 
@@ -136,7 +136,7 @@ namespace DepositTermCalc
                 var overBalance = balance + InflatedDiffPerMonth();
                 if (overBalance > -InflatedDiffPerMonth() / 10m) // must keep at least 1 month of cash
                 {
-                    notReturnedDeposits.Add(new Deposit(overBalance) { StartDate = dt, Comment = "new#" + (++newDepositsCounter) });
+                    notReturnedDeposits.Add(new Deposit(overBalance) { StartDate = dt, Name = "new#" + (++newDepositsCounter) });
                     newDepositsBalance += overBalance;
                     balance -= overBalance;
                 }
@@ -144,7 +144,7 @@ namespace DepositTermCalc
             
             DepositIfOverbalance();
 
-            while (dt < startDt.AddYears(5))
+            while (dt < startDt.AddYears(10))
             {
                 var nextDeposit = oldDepositsSet.Concat(notReturnedDeposits)
                     .Select(deposit => (deposit, end:(DateTime?)CorrectIfWeekend(deposit.EndDate ?? deposit.StartDate.Value.AddDays(30 * maxDepositDurationMonths))))
@@ -183,8 +183,8 @@ namespace DepositTermCalc
                     // and some more time passed after than
                     Trace.Assert(overBalance <= 0);
                     decimal left = -overBalance;
-
-                    while (left > 0 && newDepositsBalance > 0.001m)
+                    var minLeft = -InflatedDiffPerMonth() / 10;
+                    while (left > minLeft && newDepositsBalance > 0.001m)
                     {
                         var deposit = notReturnedDeposits.First();
                         DateTime withdrawalDate;
@@ -215,10 +215,16 @@ namespace DepositTermCalc
                         decimal taken = Math.Min(left, depositAmount);
 
                         left -= taken;
+
+
+                        if (depositAmount - taken < -InflatedDiffPerMonth() / 10m)
+                            taken = depositAmount; // don't leave small deposits
+
                         balance += taken;
 
                         var takenWithoutPercent = !isHoldInCash ? WithdrawalToInitialAmount(deposit, taken, withdrawalDate) : taken;
                         newDepositsBalance -= takenWithoutPercent;
+
 
                         if (taken == depositAmount)
                         {
@@ -227,7 +233,7 @@ namespace DepositTermCalc
                         else
                         {
                             deposit.Amount -= takenWithoutPercent;
-                            deposit = new Deposit(takenWithoutPercent) { StartDate = deposit.StartDate, Comment = "new#" + (++newDepositsCounter) };                            
+                            deposit = new Deposit(takenWithoutPercent) { StartDate = deposit.StartDate, Name = "new#" + (++newDepositsCounter) };                            
                         }
                         
 
@@ -235,14 +241,18 @@ namespace DepositTermCalc
                         deposit.WantedEndDate = dt;
                         deposit.IsHoldInCash = isHoldInCash;
 
-                        var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate && x.WantedEndDate == deposit.WantedEndDate);
+                        var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate);
                         if (dd != null)
+                        {
                             dd.Amount += deposit.Amount;
+                            if (dd.WantedEndDate != deposit.WantedEndDate)
+                                dd.WantedEndDate = null;
+                        }
                         else
                             returnedNewDeposits.Add(deposit);
                     }
 
-                    if (left > 0)
+                    if (left > minLeft)
                     {
                         if (nextDeposit.deposit == null)
                         {
@@ -317,7 +327,7 @@ namespace DepositTermCalc
                         balance -= d.Amount;
                         Console.ForegroundColor = ConsoleColor.Yellow;
                         Trace.Assert(d.StartDate==dt);
-                        Console.Write($"{DateOrEmpty()} >> {d.Amount:F0} `{d.Comment}`");
+                        Console.Write($"{DateOrEmpty()} >> {d.Amount:F0} `{d.Name}`");
                         if (d.IsHoldInCash) 
                             Console.Write($" [hold in cash {(d.EndDate-d.StartDate).Value.TotalDays} days]");
                         else
@@ -339,7 +349,7 @@ namespace DepositTermCalc
                             else Console.Write(", ");
 
                             Console.Write(r.StartDate != null
-                                ? $"`{r.Comment}` {GetDepositMonthDiff(r.EndDate.Value, r.StartDate.Value)}m {r.Amount:F0} {r.StartDate:d} till {r.EndDate:d}"
+                                ? $"`{r.Name}` {GetDepositMonthDiff(r.EndDate.Value, r.StartDate.Value)}m {r.Amount:F0} {r.StartDate:d} till {r.EndDate:d}"
                                 : $"{r.Amount:F0} till {r.EndDate:d}");
                         }
 
@@ -351,7 +361,7 @@ namespace DepositTermCalc
                         Console.ForegroundColor = oldDeposits.Contains(d) ? ConsoleColor.Cyan : ConsoleColor.Green;
                     
                         Trace.Assert(useWantedEndDate || d.EndDate == dt);
-                        Console.Write($"{DateOrEmpty()} << {d.Amount:F0} `{d.Comment}`");
+                        Console.Write($"{DateOrEmpty()} << {d.Amount:F0} `{d.Name}`");
                         if (d.StartDate != null) Console.Write($" from {d.StartDate:d}");
                         if (d.IsHoldInCash)
                             Console.Write($" [hold in cash {(d.EndDate - d.StartDate).Value.TotalDays} days]");
