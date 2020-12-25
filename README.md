@@ -4,8 +4,8 @@ Helps managing your money. Calculates deposit terms required to always keep mini
 <img src="https://i.imgur.com/OOlN1Y9.png" />
 
 ## Overview
-You need it if you want to keep most of your money in deposit bank accounts but need to withdraw some every month.
-When you reopen deposits you need to know exact time when you will need it.
+You might want it if you wish to keep most of your money in deposit bank accounts but need to withdraw some every month.
+In this cae when you (re)open deposits you have to know exact time when you need them back.
 It's not so easy math if you have many of them.
 This program solves it, just put current cash amount, withdrawal amount per month, deposit end dates in text file.
 The algorithm generates a plan while trying to keep the specified amount of cash available at least once a month.
