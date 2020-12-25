@@ -1,0 +1,7 @@
+﻿01.01.2021 -- now
+-10000 -- each month change
+10000 -- current cash
+6 -- max months
+
+05.01.2021 10000 monobank 8%
+01.02.2021 15000 pumb 7%
