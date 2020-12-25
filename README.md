@@ -18,3 +18,5 @@ The parser doesn't support comments so you need to remove ` -- stuff` from the i
 
 ## Demo
 <img src="https://i.imgur.com/0MPwAwi.png" />
+
+## <a href="https://github.com/AqlaSolutions/DepositTermCalc/releases">Download</a>
