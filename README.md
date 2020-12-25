@@ -7,7 +7,7 @@ When you reopen deposits you need to know exact time when you will need it.
 It's not so easy math if you have many of them.
 This program solves it, just put current cash amount, withdrawal amount per month, deposit end dates in text file.
 The algorithm generates a plan while trying to keep the specified amount of cash available at least once of every month.
-Though sometimes it can be 1/2 less or more - banks open deposits for months, you can't just ask them to have a deposit for exact 128 days.
+Though at other points of time it can be 1/2 less or more - banks open deposits for months, you can't just ask them to have a deposit for exact 128 days.
 
 ## Usage
 `DepositTermCalc.exe <input.txt>`
