@@ -144,17 +144,25 @@ namespace DepositTermCalc
             
             DepositIfOverbalance();
 
+            void Rewind(DateTime newDt)
+            {
+                balance += InflatedDiffPerMonth() / 30m * (decimal)(newDt - dt).TotalDays;
+                dt = newDt;
+            }
+
             while (dt < startDt.AddYears(10))
             {
-                var nextDeposit = oldDepositsSet.Concat(notReturnedDeposits)
-                    .Select(deposit => (deposit, end:(DateTime?)CorrectIfWeekend(deposit.EndDate ?? deposit.StartDate.Value.AddDays(30 * maxDepositDurationMonths))))
-                    .OrderBy(x=>x.end) // TODO MinBy
-                    .FirstOrDefault();
+                var depositsPool = oldDepositsSet.Concat(notReturnedDeposits)
+                    .Select(deposit => (deposit, end: (DateTime?)CorrectIfWeekend(deposit.EndDate ?? deposit.StartDate.Value.AddDays(30 * maxDepositDurationMonths))))
+                    .OrderBy(x => x.end)
+                    .ToList();
+
+                var nextDeposit = depositsPool.FirstOrDefault();
+
                 var withdrawalMaxDt = CorrectIfWeekend(dt.AddDays((int)Math.Max(1.0, (double) ((balance + InflatedDiffPerMonth() / 2) / (-InflatedDiffPerMonth() / 30m)))));
                 if (nextDeposit.end < withdrawalMaxDt || (nextDeposit.end - withdrawalMaxDt)?.TotalDays <= 7)
                 {
-                    balance += InflatedDiffPerMonth() / 30m * (decimal) (nextDeposit.end.Value - dt).TotalDays;
-                    dt = nextDeposit.end.Value;
+                    Rewind(nextDeposit.end.Value);
 
                     var amount = nextDeposit.deposit.Amount;
                     if (nextDeposit.deposit.EndDate == null)
@@ -175,15 +183,15 @@ namespace DepositTermCalc
                 }
                 else
                 {
-                    balance += InflatedDiffPerMonth() / 30m * (decimal) (withdrawalMaxDt - dt).TotalDays;
+                    Rewind(withdrawalMaxDt);
                     var overBalance = balance + InflatedDiffPerMonth();
-                    dt = withdrawalMaxDt;
 
                     // it can't be >= 0 because all previous overbalance we already put into deposits
                     // and some more time passed after than
                     Trace.Assert(overBalance <= 0);
                     decimal left = -overBalance;
                     var minLeft = -InflatedDiffPerMonth() / 10;
+                    bool earlyExit = false;
                     while (left > minLeft && newDepositsBalance > 0.001m)
                     {
                         var deposit = notReturnedDeposits.First();
@@ -199,60 +207,71 @@ namespace DepositTermCalc
                             withdrawalDate = CorrectIfWeekend(deposit.StartDate.Value.AddDays(depositDays));
                         }
 
-
-                        bool isHoldInCash = (withdrawalDate - deposit.StartDate.Value).TotalDays < 30;
-                        decimal depositAmount;
-                        if (isHoldInCash)
+                        var incomingTillWithdrawal = depositsPool.TakeWhile(x=>x.end<=withdrawalDate).Select(x => GetAmountWithPercent(x.deposit, x.end)).DefaultIfEmpty().Sum();
+                        var leftThisCycle = left - incomingTillWithdrawal;
+                        if (leftThisCycle >= minLeft)
                         {
-                            // can't be a real deposit so better use cash from most recent deposit instead
-                            Trace.Assert(notReturnedDeposits.First().StartDate >= deposit.StartDate);
-                            deposit = notReturnedDeposits.Last();
-                            withdrawalDate = dt;
-                            depositAmount = deposit.Amount;
-                        }
-                        else depositAmount = GetAmountWithPercent(deposit, withdrawalDate);
+                            bool isHoldInCash = (withdrawalDate - deposit.StartDate.Value).TotalDays < 30;
+                            decimal depositAmount;
+                            if (isHoldInCash)
+                            {
+                                // can't be a real deposit so better use cash from most recent deposit instead
+                                Trace.Assert(notReturnedDeposits.First().StartDate >= deposit.StartDate);
+                                deposit = notReturnedDeposits.Last();
+                                withdrawalDate = dt;
+                                depositAmount = deposit.Amount;
+                            }
+                            else depositAmount = GetAmountWithPercent(deposit, withdrawalDate);
 
-                        decimal taken = Math.Min(left, depositAmount);
+                            decimal taken = Math.Min(Math.Min(left, leftThisCycle), depositAmount);
 
-                        left -= taken;
+                            left -= taken;
+                            leftThisCycle -= taken;
+
+                            if (depositAmount - taken < -InflatedDiffPerMonth() / 10m)
+                                taken = depositAmount; // don't leave small deposits
+
+                            balance += taken;
+
+                            var takenWithoutPercent = !isHoldInCash ? WithdrawalToInitialAmount(deposit, taken, withdrawalDate) : taken;
+                            newDepositsBalance -= takenWithoutPercent;
 
 
-                        if (depositAmount - taken < -InflatedDiffPerMonth() / 10m)
-                            taken = depositAmount; // don't leave small deposits
-
-                        balance += taken;
-
-                        var takenWithoutPercent = !isHoldInCash ? WithdrawalToInitialAmount(deposit, taken, withdrawalDate) : taken;
-                        newDepositsBalance -= takenWithoutPercent;
-
-
-                        if (taken == depositAmount)
-                        {
-                            notReturnedDeposits.Remove(deposit);
-                        }
-                        else
-                        {
-                            deposit.Amount -= takenWithoutPercent;
-                            deposit = new Deposit(takenWithoutPercent) { StartDate = deposit.StartDate, Name = "new#" + (++newDepositsCounter) };                            
-                        }
+                            if (taken == depositAmount)
+                            {
+                                notReturnedDeposits.Remove(deposit);
+                            }
+                            else
+                            {
+                                deposit.Amount -= takenWithoutPercent;
+                                deposit = new Deposit(takenWithoutPercent) { StartDate = deposit.StartDate, Name = "new#" + (++newDepositsCounter) };                            
+                            }
                         
 
-                        deposit.EndDate = withdrawalDate;
-                        deposit.WantedEndDate = dt;
-                        deposit.IsHoldInCash = isHoldInCash;
+                            deposit.EndDate = withdrawalDate;
+                            deposit.WantedEndDate = dt;
+                            deposit.IsHoldInCash = isHoldInCash;
 
-                        var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate);
-                        if (dd != null)
-                        {
-                            dd.Amount += deposit.Amount;
-                            if (dd.WantedEndDate != deposit.WantedEndDate)
-                                dd.WantedEndDate = null;
+                            var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate);
+                            if (dd != null)
+                            {
+                                dd.Amount += deposit.Amount;
+                                if (dd.WantedEndDate != deposit.WantedEndDate)
+                                    dd.WantedEndDate = null;
+                            }
+                            else
+                                returnedNewDeposits.Add(deposit);
                         }
-                        else
-                            returnedNewDeposits.Add(deposit);
+                        if (incomingTillWithdrawal > 0 && leftThisCycle <= minLeft)
+                        {
+                            var newDt = depositsPool.First().end.Value;
+                            Rewind(newDt);
+                            earlyExit = true;
+                            break;
+                        }
                     }
 
-                    if (left > minLeft)
+                    if (left > minLeft && !earlyExit)
                     {
                         if (nextDeposit.deposit == null)
                         {
@@ -267,10 +286,10 @@ namespace DepositTermCalc
                         else
                         {
                             var nextDt = nextDeposit.end.Value;
-                            balance += InflatedDiffPerMonth() / 30m * (decimal) (nextDt - dt).TotalDays;
+                            var prevDt = dt;
+                            Rewind(nextDt);
                             if (balance < 0)
-                                Console.WriteLine($"Gap from {dt:d} till {nextDt:d}: {balance:F0}");
-                            dt = nextDt;
+                                Console.WriteLine($"Gap from {prevDt:d} till {nextDt:d}: {balance:F0}");
                         }
 
                     }
