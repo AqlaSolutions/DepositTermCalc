@@ -34,7 +34,7 @@ The algorithm generates a plan while trying to keep the specified total amount o
 
 <a href="https://github.com/AqlaSolutions/DepositTermCalc/blob/master/input.txt">Example input file</a>.
 
-Dates are specified as dddd.mm.yy though other formats might still work.
+Dates are specified as dddd.mm.yyyy though other formats might still work.
 
 ## Code
 This is a simple tool and it's not meant to be maintained and developed for a long time. No OOP - plain algorithm. No tests - debugger driven development instead =) 
