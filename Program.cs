@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
+using System.Xml;
 
 namespace DepositTermCalc
 {
@@ -18,7 +19,8 @@ namespace DepositTermCalc
             public bool IsHoldInCash { get; set; }
             public decimal Amount { get; set; }
             public string Comment { get; set; } = "";
-            
+            public bool WasEndedBecauseOfMaxDurationLimit { get; set; }
+
             public Deposit(decimal amount)
             {
                 Amount = amount;
@@ -59,9 +61,9 @@ namespace DepositTermCalc
             var maxDepositDurationMonths = int.Parse(lines[3]);
             var taxPercent = ParsePercent(lines[5]);
             var annualInflationPercent = ParsePercent(lines[6]);
-            var depositPercents = lines[4].Split(new[]{' ' }, StringSplitOptions.RemoveEmptyEntries).Select(ParsePercent)
+            var depositPercents = lines[4].Split(new[]{' ' }, StringSplitOptions.RemoveEmptyEntries).Select(ParsePercent).Prepend(0m)
                 .Select(x =>
-                    (100m + x * (1m - taxPercent / 100m)) * (1m - annualInflationPercent / 100m) - 100m).ToList();
+                    (100m + x * (1m - (x == 0 ? 0 : taxPercent / 100m))) / 100m * (1m - annualInflationPercent / 100m) * 100m - 100m).ToList();
             
             decimal GetAmountWithPercent(Deposit deposit, DateTime? endDate = null)
             {
@@ -89,16 +91,17 @@ namespace DepositTermCalc
 
             if (lines[7] != "") throw new ArgumentException();
 
-            // output in usual format
-            CultureInfo.DefaultThreadCurrentCulture = dtCulture;
-            CultureInfo.DefaultThreadCurrentUICulture = dtCulture;
-            CultureInfo.CurrentCulture = dtCulture;
-            CultureInfo.CurrentUICulture = dtCulture;
-
 
             var oldDeposits = lines.Skip(8).Select(s => s.Split(new[] { ' ' }, 3))
                 .Select(ss => new Deposit(decimal.Parse(ss[1])) { EndDate = CorrectIfWeekend(DateTime.Parse(ss[0], dtCulture)), Comment = ss.Length >= 3 ? ss[2] : ""}).OrderBy(x => x.EndDate)
                 .ToList();
+
+
+            // output in usual format
+            CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InstalledUICulture;
+            CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InstalledUICulture;
+            CultureInfo.CurrentCulture = CultureInfo.InstalledUICulture;
+            CultureInfo.CurrentUICulture = CultureInfo.InstalledUICulture;
 
             decimal newDepositsBalance = 0;
             
@@ -147,7 +150,7 @@ namespace DepositTermCalc
                     .Select(deposit => (deposit, end:(DateTime?)CorrectIfWeekend(deposit.EndDate ?? deposit.StartDate.Value.AddDays(30 * maxDepositDurationMonths))))
                     .OrderBy(x=>x.end) // TODO MinBy
                     .FirstOrDefault();
-                var withdrawalMaxDt = CorrectIfWeekend(dt.AddDays(Math.Max(1.0, (double) ((balance + InflatedDiffPerMonth() / 2) / (-InflatedDiffPerMonth() / 30m)))));
+                var withdrawalMaxDt = CorrectIfWeekend(dt.AddDays((int)Math.Max(1.0, (double) ((balance + InflatedDiffPerMonth() / 2) / (-InflatedDiffPerMonth() / 30m)))));
                 if (nextDeposit.end < withdrawalMaxDt || (nextDeposit.end - withdrawalMaxDt)?.TotalDays <= 7)
                 {
                     balance += InflatedDiffPerMonth() / 30m * (decimal) (nextDeposit.end.Value - dt).TotalDays;
@@ -162,6 +165,7 @@ namespace DepositTermCalc
                         newDepositsBalance -= nextDeposit.deposit.Amount;
                         notReturnedDeposits.Remove(nextDeposit.deposit);
                         nextDeposit.deposit.EndDate = dt;
+                        nextDeposit.deposit.WasEndedBecauseOfMaxDurationLimit = true;
                         returnedNewDeposits.Add(nextDeposit.deposit);
                     }
                     else oldDepositsSet.Remove(nextDeposit.deposit);
@@ -231,11 +235,11 @@ namespace DepositTermCalc
                         deposit.WantedEndDate = dt;
                         deposit.IsHoldInCash = isHoldInCash;
 
-                        var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate);
+                        var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate && x.WantedEndDate == deposit.WantedEndDate);
                         if (dd != null)
                             dd.Amount += deposit.Amount;
                         else
-                            returnedNewDeposits.Add(deposit);                        
+                            returnedNewDeposits.Add(deposit);
                     }
 
                     if (left > 0)
@@ -265,12 +269,6 @@ namespace DepositTermCalc
 
             Debug.Assert(Math.Abs(newDepositsBalance) <= 0.001m);
 
-            Console.WriteLine("Simulation with fake dates!");
-            OutputSimulation(true);
-            Console.WriteLine();
-            Console.WriteLine("----------------------------------------------");
-            Console.WriteLine();
-            Console.WriteLine("Simulation with actual dates!");
             OutputSimulation(false);
 
             void OutputSimulation(bool useWantedEndDate)
@@ -349,7 +347,7 @@ namespace DepositTermCalc
                     }
                     else
                     {
-                        balance += d.Amount;
+                        balance += GetAmountWithPercent(d, d.EndDate);
                         Console.ForegroundColor = oldDeposits.Contains(d) ? ConsoleColor.Cyan : ConsoleColor.Green;
                     
                         Trace.Assert(useWantedEndDate || d.EndDate == dt);
@@ -366,6 +364,10 @@ namespace DepositTermCalc
                             else
                                 Console.Write($", wanted end {d.WantedEndDate:d}");
                         }
+
+                        if (d.WasEndedBecauseOfMaxDurationLimit)
+                            Console.Write($", ended on max duration");
+
                         Console.WriteLine();
                         Console.ForegroundColor = ConsoleColor.Gray;
                     }
@@ -374,9 +376,9 @@ namespace DepositTermCalc
                     Console.ForegroundColor = 
                         !isContinued 
                         && (balance < -InflatedDiffPerMonth() * (1m - redThreshold) 
-                        || balance > -InflatedDiffPerMonth() * (1m + redThreshold * 2m)) 
-                            ? ConsoleColor.Red 
-                            : ConsoleColor.DarkGray;
+                            || balance > -InflatedDiffPerMonth() * (1m + redThreshold * 1.5m)) 
+                                ? ConsoleColor.Red 
+                                : ConsoleColor.DarkGray;
                     Console.WriteLine($"{dateSpaces} ^^ {balance:F0} ^^");
                     Console.ForegroundColor = ConsoleColor.Gray;
                     if (!isContinued) Console.WriteLine();
