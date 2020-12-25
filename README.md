@@ -8,7 +8,7 @@ It's not so easy math if you have many of them.
 This program solves it, just put current cash amount, withdrawal amount per month, deposit end dates in text file.
 The algorithm generates a plan while trying to keep the specified amount of cash available at least once of every month.
 Though at other points of time it can be 1/2 less or more - banks open deposits for months, you can't just ask them to have a deposit for exact 128 days.
-Another goal of the algorithm is to use a maximum possible term for each deposit to get maximum %.
+Another goal of the algorithm is to use a maximum possible term for each deposit to get maximum % (1 deposit for 6 months is better than 6 deposits for 1 month).
 
 ## Usage
 `DepositTermCalc.exe <input.txt>`
