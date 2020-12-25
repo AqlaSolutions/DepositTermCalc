@@ -17,7 +17,7 @@ This is a simple tool and it's not meant to be maintained and developed for a lo
 ## Usage
 `DepositTermCalc.exe <input.txt>`
 
-<a href="https://github.com/AqlaSolutions/DepositTermCalc/blob/master/input.txt">example input file</a>.
+<a href="https://github.com/AqlaSolutions/DepositTermCalc/blob/master/input.txt">Example input file</a>.
 
 ## Demo
 `<<` means withdrawing,
