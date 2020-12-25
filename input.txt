@@ -5,8 +5,7 @@
 8% 8% 9% 9% 9% 9.5% 9.5% 9.5% 10% 10% 10% 11% -- minimum deposit percents from 1 to 12 months
 19.5% -- deposit tax
 5% -- annual inflation
-
- -- deposits list, no start date specified but amount must already include percents and tax
+-- deposits list, no start date specified but amount must already include percents and tax
 05.01.2021 11111 monobank 8% -- <end date> <amount> <name>
 09.02.2021 22222 pumb 7%
 15.03.2021 33333 pumb 8,5%

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Xml;
 
 namespace DepositTermCalc
@@ -46,6 +47,8 @@ namespace DepositTermCalc
                 s = s.Substring(0, s.Length - 1);
                 return decimal.Parse(s);
             }
+            
+            const bool allowMerging = true;
 
             // for unified decimal numbers parsing
             CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -162,7 +165,7 @@ namespace DepositTermCalc
 
                 var nextDeposit = depositsPool.FirstOrDefault();
 
-                var withdrawalMaxDt = CorrectIfWeekend(dt.AddDays((int)Math.Max(1.0, (double) ((balance + InflatedDiffPerMonth() / 2) / (-InflatedDiffPerMonth() / 30m)))));
+                var withdrawalMaxDt = CorrectIfWeekend(dt.AddDays((int)Math.Max(0, (double) ((balance + InflatedDiffPerMonth() / 2) / (-InflatedDiffPerMonth() / 30m)))));
                 if (nextDeposit.end < withdrawalMaxDt || (nextDeposit.end - withdrawalMaxDt)?.TotalDays <= 7)
                 {
                     Rewind(nextDeposit.end.Value);
@@ -186,9 +189,6 @@ namespace DepositTermCalc
                 }
                 else
                 {
-                    if (withdrawalMaxDt.ToString().StartsWith("07.06.2022"))
-                    {
-                    }
                     Rewind(withdrawalMaxDt);
                     var overBalance = balance + InflatedDiffPerMonth();
 
@@ -204,11 +204,39 @@ namespace DepositTermCalc
                         DateTime withdrawalDate;
                         {
                             int depositDays = (int)(dt - deposit.StartDate.Value).TotalDays;
+
                             // try to add more days
                             int ceil = (depositDays / 30 + 1) * 30;
+
+                            int cashForDays = Math.Max(0, (int)((balance + InflatedDiffPerMonth() / 30m * 5m) / (-InflatedDiffPerMonth() / 30m)) - 1);
+                            int prevCashForDays;
+                            DateTime endOfCashDate;
+                            do
+                            {
+                                prevCashForDays = cashForDays;
+                                endOfCashDate = CorrectIfWeekend(dt.AddDays(cashForDays));
+                                decimal balanceChangeTillEndOfCash = depositsPool.TakeWhile(x => x.end <= endOfCashDate).Select(x => GetAmountWithPercent(x.deposit, x.end)).DefaultIfEmpty().Sum();
+                                cashForDays = Math.Max(0, (int)((balance + balanceChangeTillEndOfCash + InflatedDiffPerMonth() / 30m * 5m) / (-InflatedDiffPerMonth() / 30m)) - 1);
+                            }
+                            while (cashForDays != prevCashForDays);
+
+                            // initially I thought to use it for ceil check
+                            // but if we can wait why bother?
+                            if (depositsPool.Count > 0 && endOfCashDate >= depositsPool.First().end)
+                            {
+                                Rewind(depositsPool.First().end.Value);
+                                earlyExit = true;
+                                break;
+                            }
+
                             int floor = depositDays / 30 * 30;
 
-                            depositDays = ceil - depositDays <= depositDays - floor && ceil - depositDays <= 10 ? ceil : floor;
+                            if (cashForDays >= ceil - depositDays)
+                                depositDays = ceil;
+                            else
+                                depositDays = floor;
+
+                            //depositDays = ceil - depositDays <= depositDays - floor && ceil - depositDays <= 10 ? ceil : floor;
 
                             withdrawalDate = CorrectIfWeekend(deposit.StartDate.Value.AddDays(depositDays));
                         }
@@ -259,7 +287,7 @@ namespace DepositTermCalc
                             deposit.IsHoldInCash = isHoldInCash;
 
                             var dd = returnedNewDeposits.FirstOrDefault(x => x.StartDate == deposit.StartDate && x.EndDate == deposit.EndDate);
-                            if (dd != null)
+                            if (dd != null && allowMerging)
                             {
                                 dd.Amount += deposit.Amount;
                                 if (dd.WantedEndDate != deposit.WantedEndDate)
@@ -270,8 +298,7 @@ namespace DepositTermCalc
                         }
                         if (incomingTillWithdrawal > 0 && leftThisCycle <= minLeft)
                         {
-                            var newDt = depositsPool.First().end.Value;
-                            Rewind(newDt);
+                            Rewind(depositsPool.First().end.Value);
                             earlyExit = true;
                             break;
                         }
@@ -304,6 +331,8 @@ namespace DepositTermCalc
 
             Debug.Assert(Math.Abs(newDepositsBalance) <= 0.001m);
 
+            // if set to false true balances may be different from expected above
+            // because of different real and wanted deposit end dates
             OutputSimulation(false);
 
             void OutputSimulation(bool useWantedEndDate)
