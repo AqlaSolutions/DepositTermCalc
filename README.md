@@ -23,9 +23,11 @@ The algorithm generates a plan while trying to keep the specified total amount o
 * Inflation
 * Maximum deposit duration can be limited
 
-## Code
-This is a simple tool and it's not meant to be maintained and developed for a long time. No OOP - plain algorithm. No tests - it's a debugger driven development =) 
-
+## Legend
+`<<` means withdrawing,
+`>>` means opening a new deposit,
+`vv` indicates a balance before next operation,
+`^^` indicates a balance after next operation
 
 ## Usage
 `DepositTermCalc.exe <input.txt>`
@@ -34,11 +36,8 @@ This is a simple tool and it's not meant to be maintained and developed for a lo
 
 Dates are specified as dddd.mm.yy though other formats might still work.
 
-## Legend
-`<<` means withdrawing,
-`>>` means opening a new deposit,
-`vv` indicates a balance before next operation,
-`^^` indicates a balance after next operation
+## Code
+This is a simple tool and it's not meant to be maintained and developed for a long time. No OOP - plain algorithm. No tests - debugger driven development instead =) 
 
 ## License
 Free for personal use. You can modify code but you are not allowed to distribute your changes in any form.
