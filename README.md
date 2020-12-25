@@ -16,3 +16,5 @@ Example input file: input.txt in sources.
 
 The parser doesn't support comments so you need to remove ` -- stuff` from the input file before launching.
 
+## Demo
+<img src="https://i.imgur.com/0MPwAwi.png" />
