@@ -61,9 +61,12 @@ namespace DepositTermCalc
             var maxDepositDurationMonths = int.Parse(lines[3]);
             var taxPercent = ParsePercent(lines[5]);
             var annualInflationPercent = ParsePercent(lines[6]);
+            // do not apply inflation to both deposits and diffPerMonth,
+            // choose only one,
+            // for reality diffPerMonth is chosen
             var depositPercents = lines[4].Split(new[]{' ' }, StringSplitOptions.RemoveEmptyEntries).Select(ParsePercent).Prepend(0m)
                 .Select(x =>
-                    (100m + x * (1m - (x == 0 ? 0 : taxPercent / 100m))) / 100m * (1m - annualInflationPercent / 100m) * 100m - 100m).ToList();
+                    (100m + x * (1m - (x == 0 ? 0 : taxPercent / 100m))) - 100m).ToList();
             
             decimal GetAmountWithPercent(Deposit deposit, DateTime? endDate = null)
             {
@@ -183,6 +186,9 @@ namespace DepositTermCalc
                 }
                 else
                 {
+                    if (withdrawalMaxDt.ToString().StartsWith("07.06.2022"))
+                    {
+                    }
                     Rewind(withdrawalMaxDt);
                     var overBalance = balance + InflatedDiffPerMonth();
 
@@ -322,10 +328,7 @@ namespace DepositTermCalc
                     bool isContinuation = eventIndex > 0 && events[eventIndex - 1].dt == ev.dt;
                     bool isContinued = eventIndex + 1 < events.Count && events[eventIndex+1].dt==ev.dt;
 
-
-                    var newDt = ev.dt;
-                    balance += InflatedDiffPerMonth() / 30m * (decimal) (newDt - dt).TotalDays;
-                    dt = newDt;
+                    Rewind(ev.dt);
                     string dateSpaces = new string(' ', $"{dt:d}".Length);
                     string DateOrEmpty()
                     {
@@ -376,7 +379,7 @@ namespace DepositTermCalc
                     }
                     else
                     {
-                        balance += GetAmountWithPercent(d, d.EndDate);
+                        balance += d.IsHoldInCash ? d.Amount : GetAmountWithPercent(d, d.EndDate);
                         Console.ForegroundColor = oldDeposits.Contains(d) ? ConsoleColor.Cyan : ConsoleColor.Green;
                     
                         Trace.Assert(useWantedEndDate || d.EndDate == dt);
